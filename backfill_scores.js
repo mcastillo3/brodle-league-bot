@@ -20,15 +20,15 @@ const fs = require("fs");
 
 // ---- CONFIG ----------------------------------------------------------------
 const PLAYER_MAP = {
-  BG: { id: null, name: "BG" }, // e.g. id: '123456789012345678'
-  MC: { id: null, name: "MC" },
+  BG: { id: "1514100951508844655", name: "BG" }, // e.g. id: '123456789012345678'
+  MC: { id: "462970375589068800", name: "MC" },
   CA: { id: null, name: "CA" },
-  DH: { id: null, name: "DH" },
+  DH: { id: "1334729598302421124", name: "DH" },
   JG: { id: null, name: "JG" },
   SA: { id: null, name: "SA" },
   BM: { id: null, name: "BM" },
   TB: { id: null, name: "TB" },
-  DL: { id: null, name: "DL" },
+  DL: { id: "444869278160650280", name: "DL" },
   PT: { id: null, name: "PT" },
   NP: { id: null, name: "NP" },
 };
@@ -133,7 +133,7 @@ async function main() {
   console.log(`Mode: ${COMMIT ? "COMMIT" : "DRY RUN"}`);
   console.log(
     `Score docs to write: ${writes.size}` +
-      (skippedScores ? ` (${skippedScores} skipped)` : "")
+      (skippedScores ? ` (${skippedScores} skipped)` : ""),
   );
   console.log(`Legacy tallies from "${lastTally?.sheet}":`);
   console.log("  all-time:", legacy.alltime);
@@ -144,11 +144,11 @@ async function main() {
   if (unmapped.length) {
     console.log(
       `\n⚠️  No Discord ID for: ${unmapped.join(
-        ", "
-      )} — they'll be imported as legacy_XX.`
+        ", ",
+      )} — they'll be imported as legacy_XX.`,
     );
     console.log(
-      "   Fill PLAYER_MAP and re-run (safe to re-run; doc IDs are stable)."
+      "   Fill PLAYER_MAP and re-run (safe to re-run; doc IDs are stable).",
     );
   }
 
@@ -165,7 +165,7 @@ async function main() {
     }
     await batch.commit();
     console.log(
-      `  committed ${Math.min(i + 450, entries.length)}/${entries.length}`
+      `  committed ${Math.min(i + 450, entries.length)}/${entries.length}`,
     );
   }
   await db.collection("meta").doc("legacyWins").set(legacy);

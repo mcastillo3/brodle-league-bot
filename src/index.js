@@ -1,18 +1,33 @@
-require('dotenv').config();
-const { Client, GatewayIntentBits, Events } = require('discord.js');
-const cron = require('node-cron');
+require("dotenv").config();
+const { Client, GatewayIntentBits, Events } = require("discord.js");
+const cron = require("node-cron");
 
 const {
-  parseWordleShare, currentPuzzleNumber, weekIdForPuzzle,
-  puzzlesInWeek, monthIdForPuzzle,
-} = require('./parser');
-const db = require('./db');
+  parseWordleShare,
+  currentPuzzleNumber,
+  weekIdForPuzzle,
+  puzzlesInWeek,
+  monthIdForPuzzle,
+} = require("./parser");
+const db = require("./db");
 const {
-  computeStandings, winners, standingsEmbed, playerStatsEmbed,
-  formatWeekGrid, formatTallyRows, formatStatsTable,
-} = require('./leaderboard');
+  computeStandings,
+  winners,
+  standingsEmbed,
+  playerStatsEmbed,
+  formatWeekGrid,
+  formatTallyRows,
+  formatStatsTable,
+} = require("./leaderboard");
 
-const TZ = process.env.TIMEZONE || 'America/Chicago';
+const TZ = process.env.TIMEZONE || "America/Chicago";
+
+const NAME_MAP = {
+  "1514100951508844655": "Ben",
+  462970375589068800: "Manny",
+  "444869278160650280": "Daniel L",
+  "1334729598302421124": "Daniel H",
+};
 
 const client = new Client({
   intents: [
@@ -42,28 +57,28 @@ client.on(Events.MessageCreate, async (message) => {
       monthId: monthIdForPuzzle(parsed.puzzle),
     });
     // ✅ new score, 🔁 repost/correction — so players know it registered
-    await message.react(result === 'new' ? '✅' : '🔁');
+    await message.react(result === "new" ? "✅" : "🔁");
   } catch (err) {
-    console.error('saveScore failed:', err);
-    await message.react('⚠️').catch(() => {});
+    console.error("saveScore failed:", err);
+    await message.react("⚠️").catch(() => {});
   }
 });
 
-
 /** userId -> spreadsheet-style initials, derived from server display names. */
+/** userId -> display label for tables (hardcoded names first). */
 function makeInitialsFor(interaction, scores) {
   const cache = {};
   return (userId) => {
     if (cache[userId]) return cache[userId];
     const doc = scores.find((s) => s.userId === userId);
-    const name = interaction.guild?.members.cache.get(userId)?.displayName
-      || doc?.username || '??';
-    const words = name.trim().split(/\s+/);
-    let init = words.length >= 2
-      ? (words[0][0] + words[words.length - 1][0]).toUpperCase()
-      : name.slice(0, 2).toUpperCase();
-    while (Object.values(cache).includes(init)) init += '*';
-    return (cache[userId] = init);
+    let label =
+      NAME_MAP[userId] ||
+      interaction.guild?.members.cache.get(userId)?.displayName ||
+      doc?.username ||
+      "??";
+    label = label.trim().slice(0, 8);
+    while (Object.values(cache).includes(label)) label += "*";
+    return (cache[userId] = label);
   };
 }
 
@@ -75,68 +90,82 @@ client.on(Events.InteractionCreate, async (interaction) => {
   try {
     const nowPuzzle = currentPuzzleNumber(TZ);
 
-    if (interaction.commandName === 'week') {
+    if (interaction.commandName === "week") {
       const weekId = weekIdForPuzzle(nowPuzzle);
       const [scores, winCounts] = await Promise.all([
-        db.scoresForWeek(weekId), db.weeklyWinCounts(),
+        db.scoresForWeek(weekId),
+        db.weeklyWinCounts(),
       ]);
 
       const initialsFor = makeInitialsFor(interaction, scores);
 
       const order = [...new Set(scores.map((s) => s.userId))];
-      let table = formatWeekGrid(scores, puzzlesInWeek(nowPuzzle), nowPuzzle, initialsFor);
+      let table = formatWeekGrid(
+        scores,
+        puzzlesInWeek(nowPuzzle),
+        nowPuzzle,
+        initialsFor,
+      );
 
       // season wins (weekly titles this calendar year) + all-time, like the sheet
       if (order.length) {
         const year = String(new Date().getFullYear());
         const seasonCounts = await db.weeklyWinCountsSince(`${year}-01-01`);
         const tally = formatTallyRows(order, initialsFor, [
-          { label: 'seas:', values: seasonCounts },
-          { label: 'all:', values: winCounts },
+          { label: "seas:", values: seasonCounts },
+          { label: "all:", values: winCounts },
         ]);
-        table = table.replace(/\n```$/, '\n' + tally + '\n```');
+        table = table.replace(/\n```$/, "\n" + tally + "\n```");
       }
 
       await interaction.editReply({
         content: `📅 **Week of ${weekId}**\n${table}`,
       });
-
-    } else if (interaction.commandName === 'month') {
+    } else if (interaction.commandName === "month") {
       const monthId = monthIdForPuzzle(nowPuzzle);
       const scores = await db.scoresForMonth(monthId);
       const standings = computeStandings(scores, null);
       const initialsFor = makeInitialsFor(interaction, scores);
       await interaction.editReply({
-        content: `🗓️ **${monthId}** · ranked by avg\n`
-          + formatStatsTable(standings, initialsFor),
+        content:
+          `🗓️ **${monthId}** · ranked by avg\n` +
+          formatStatsTable(standings, initialsFor),
       });
-
-    } else if (interaction.commandName === 'alltime') {
+    } else if (interaction.commandName === "alltime") {
       const year = String(new Date().getFullYear());
       const [scores, winCounts, seasonCounts] = await Promise.all([
-        db.allScores(), db.weeklyWinCounts(), db.weeklyWinCountsSince(`${year}-01-01`),
+        db.allScores(),
+        db.weeklyWinCounts(),
+        db.weeklyWinCountsSince(`${year}-01-01`),
       ]);
       const standings = computeStandings(scores, null);
       const initialsFor = makeInitialsFor(interaction, scores);
       await interaction.editReply({
-        content: '🏆 **All-time** · ranked by avg\n'
-          + formatStatsTable(standings, initialsFor, [
-              { header: 'seas', values: seasonCounts },
-              { header: 'all', values: winCounts },
-            ]),
+        content:
+          "🏆 **All-time** · ranked by avg\n" +
+          formatStatsTable(standings, initialsFor, [
+            { header: "seas", values: seasonCounts },
+            { header: "all", values: winCounts },
+          ]),
       });
-
-    } else if (interaction.commandName === 'player') {
-      const user = interaction.options.getUser('user') || interaction.user;
-      const [scores, winCounts] = await Promise.all([db.scoresForPlayer(user.id), db.weeklyWinCounts()]);
-      const name = interaction.guild?.members.cache.get(user.id)?.displayName || user.username;
+    } else if (interaction.commandName === "player") {
+      const user = interaction.options.getUser("user") || interaction.user;
+      const [scores, winCounts] = await Promise.all([
+        db.scoresForPlayer(user.id),
+        db.weeklyWinCounts(),
+      ]);
+      const name =
+        interaction.guild?.members.cache.get(user.id)?.displayName ||
+        user.username;
       await interaction.editReply({
         embeds: [playerStatsEmbed(name, scores, winCounts[user.id] || 0)],
       });
     }
   } catch (err) {
     console.error(err);
-    await interaction.editReply('Something went wrong pulling the stats. Check the bot logs.');
+    await interaction.editReply(
+      "Something went wrong pulling the stats. Check the bot logs.",
+    );
   }
 });
 
@@ -163,18 +192,24 @@ async function announceLastWeek() {
 
   const channel = await client.channels.fetch(process.env.ANNOUNCE_CHANNEL_ID);
   if (!standings.length) {
-    await channel.send(`No Wordle scores recorded for the week of ${weekId}. Sad week. 😔`);
+    await channel.send(
+      `No Wordle scores recorded for the week of ${weekId}. Sad week. 😔`,
+    );
     return;
   }
 
-  const crownLine = champs.length === 1
-    ? `👑 **${champs[0].username}** is the Wordle champion for the week of ${weekId}!`
-    : `👑 Co-champions for the week of ${weekId}: ${champs.map((c) => `**${c.username}**`).join(' & ')}!`;
+  const crownLine =
+    champs.length === 1
+      ? `👑 **${champs[0].username}** is the Wordle champion for the week of ${weekId}!`
+      : `👑 Co-champions for the week of ${weekId}: ${champs.map((c) => `**${c.username}**`).join(" & ")}!`;
 
   await channel.send({
     content: crownLine,
-    embeds: [standingsEmbed(`🏁 Final standings — week of ${weekId}`, standings,
-      { footer: 'New week starts today. Good luck! 🟩' })],
+    embeds: [
+      standingsEmbed(`🏁 Final standings — week of ${weekId}`, standings, {
+        footer: "New week starts today. Good luck! 🟩",
+      }),
+    ],
   });
 
   await db.recordWeekResult(
@@ -189,9 +224,13 @@ client.once(Events.ClientReady, (c) => {
   console.log(`Logged in as ${c.user.tag}`);
   // Monday 4:00 AM in the league timezone. The Mon-Sun week ended at midnight;
   // the 4-hour buffer lets night owls post Sunday's puzzle late.
-  cron.schedule('0 4 * * 1', () => {
-    announceLastWeek().catch((err) => console.error('announce failed:', err));
-  }, { timezone: TZ });
+  cron.schedule(
+    "0 4 * * 1",
+    () => {
+      announceLastWeek().catch((err) => console.error("announce failed:", err));
+    },
+    { timezone: TZ },
+  );
   console.log(`Weekly announcement scheduled for Mondays 4:00 AM ${TZ}.`);
 });
 
