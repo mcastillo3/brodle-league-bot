@@ -1,0 +1,16 @@
+{
+  "name": "wordle-league-bot",
+  "version": "1.0.0",
+  "description": "Discord bot that tracks NYT Wordle scores in Firestore with weekly leaderboards",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "deploy": "node src/deploy-commands.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.5",
+    "firebase-admin": "^12.7.0",
+    "node-cron": "^3.0.3"
+  }
+}
