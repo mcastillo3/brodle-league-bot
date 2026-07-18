@@ -90,8 +90,26 @@ async function weeklyWinCountsSince(minWeekId) {
   return counts;
 }
 
+/** Current champion theme (colors + emoji + championId). Null if never set. */
+async function getTheme() {
+  const doc = await db.collection('meta').doc('theme').get();
+  return doc.exists ? doc.data() : null;
+}
+
+async function setTheme(theme) {
+  await db.collection('meta').doc('theme').set(theme, { merge: true });
+}
+
+/** userId of the most recently announced week's winner (the reigning champion). */
+async function currentChampionId() {
+  const snap = await db.collection('weeks').orderBy('weekId', 'desc').limit(1).get();
+  if (snap.empty) return null;
+  const ids = snap.docs[0].data().winnerIds || [];
+  return ids[0] || null; // if co-champions, the first listed holds theme rights
+}
+
 module.exports = {
   saveScore, scoresForWeek, scoresForMonth, allScores,
   scoresForPlayer, recordWeekResult, weekAlreadyAnnounced, weeklyWinCounts,
-  weeklyWinCountsSince,
+  weeklyWinCountsSince, getTheme, setTheme, currentChampionId,
 };

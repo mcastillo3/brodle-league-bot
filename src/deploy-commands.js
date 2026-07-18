@@ -15,6 +15,23 @@ const commands = [
     .setDescription('Stats for one player')
     .addUserOption((o) =>
       o.setName('user').setDescription('Player (defaults to you)').setRequired(false)),
+
+  new SlashCommandBuilder().setName('champion')
+    .setDescription('Reigning champion: set the weekly table theme')
+    .addSubcommand((s) => s.setName('colors')
+      .setDescription('Pick two colors the week table alternates between')
+      .addStringOption((o) => o.setName('color1').setDescription('First color name').setRequired(true))
+      .addStringOption((o) => o.setName('color2').setDescription('Second color name').setRequired(true)))
+    .addSubcommand((s) => s.setName('icon')
+      .setDescription('Pick the emoji shown over your initials')
+      .addStringOption((o) => o.setName('emoji').setDescription('Emoji name (see /emojis)').setRequired(true))),
+
+  new SlashCommandBuilder().setName('colors')
+    .setDescription('List the color names you can choose for the theme'),
+  new SlashCommandBuilder().setName('emojis')
+    .setDescription('List the champion emoji names you can choose'),
+  new SlashCommandBuilder().setName('help')
+    .setDescription('Explain every command this bot understands'),
 ].map((c) => c.toJSON());
 
 const rest = new REST().setToken(process.env.DISCORD_TOKEN);
