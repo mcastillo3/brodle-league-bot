@@ -9,9 +9,24 @@
 const admin = require('firebase-admin');
 const path = require('path');
 
-admin.initializeApp({
-  credential: admin.credential.cert(require(path.join(__dirname, '..', 'serviceAccountKey.json'))),
-});
+// Load the service account credential from either:
+//   1. FIREBASE_SERVICE_ACCOUNT env var — the full JSON as a string (for Railway
+//      and other hosts where you paste secrets instead of committing files), or
+//   2. serviceAccountKey.json in the project root (local development).
+// The file is gitignored, so the env-var path is what production uses.
+function loadCredential() {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (raw) {
+    try {
+      return JSON.parse(raw);
+    } catch (e) {
+      throw new Error('FIREBASE_SERVICE_ACCOUNT is set but is not valid JSON: ' + e.message);
+    }
+  }
+  return require(path.join(__dirname, '..', 'serviceAccountKey.json'));
+}
+
+admin.initializeApp({ credential: admin.credential.cert(loadCredential()) });
 const db = admin.firestore();
 
 /** Save (or overwrite) one player's score for one puzzle. Returns 'new' | 'updated'. */

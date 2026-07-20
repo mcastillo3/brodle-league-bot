@@ -4,8 +4,9 @@
   "description": "Discord bot that tracks NYT Wordle scores in Firestore with weekly leaderboards",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "deploy": "node src/deploy-commands.js"
+    "start": "node src/deploy-commands.js && node src/index.js",
+    "deploy": "node src/deploy-commands.js",
+    "start:bot": "node src/index.js"
   },
   "dependencies": {
     "@napi-rs/canvas": "^1.0.2",
