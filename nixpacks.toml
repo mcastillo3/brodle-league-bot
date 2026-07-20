@@ -1,7 +1,0 @@
-# Tells Railway (Nixpacks) to install fonts so @napi-rs/canvas can render text
-# and emoji in the table images. Without these, Linux has no fonts and the
-# images come out as blank boxes (the renderer has Linux fallback paths that
-# point at exactly these packages).
-
-[phases.setup]
-aptPkgs = ["fonts-dejavu-core", "fonts-noto-color-emoji"]

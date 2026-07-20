@@ -10,24 +10,27 @@
  */
 
 const { createCanvas, GlobalFonts } = require('@napi-rs/canvas');
+const path = require('path');
 
-// Register the fonts we draw with by explicit family name, so rendering never
-// depends on canvas recognizing generic names like "system-ui". On Windows the
-// files below exist in C:\Windows\Fonts; registration is wrapped in try/catch so
-// a missing file (e.g. on a Linux host) doesn't crash the bot — it just falls
-// back to whatever the system provides.
+// Register the fonts we draw with by explicit family name. The bundled files
+// in assets/ are tried FIRST so rendering works identically on any host
+// (Railway, a Pi, a VPS) with zero system font dependencies. Windows and
+// Linux system paths are fallbacks. try/catch so a missing file never crashes.
+const ASSET = (f) => path.join(__dirname, '..', 'assets', f);
+
 function tryFont(paths, family) {
   const fs = require('fs');
   for (const p of paths) {
     try {
-      if (fs.existsSync(p)) { GlobalFonts.registerFromPath(p, family); return; }
+      if (fs.existsSync(p)) { GlobalFonts.registerFromPath(p, family); return p; }
     } catch { /* ignore and try next */ }
   }
+  console.warn(`[fonts] no file found for family ${family} — text may not render`);
 }
-tryFont(['C:\\Windows\\Fonts\\segoeui.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'], 'AppSans');
-tryFont(['C:\\Windows\\Fonts\\segoeuib.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'], 'AppSansBold');
-tryFont(['C:\\Windows\\Fonts\\consola.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf'], 'AppMono');
-tryFont(['C:\\Windows\\Fonts\\seguiemj.ttf', '/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf'], 'AppEmoji');
+tryFont([ASSET('DejaVuSans.ttf'), 'C:\\Windows\\Fonts\\segoeui.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'], 'AppSans');
+tryFont([ASSET('DejaVuSans-Bold.ttf'), 'C:\\Windows\\Fonts\\segoeuib.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'], 'AppSansBold');
+tryFont([ASSET('DejaVuSansMono.ttf'), 'C:\\Windows\\Fonts\\consola.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf'], 'AppMono');
+tryFont([ASSET('NotoColorEmoji.ttf'), 'C:\\Windows\\Fonts\\seguiemj.ttf', '/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf'], 'AppEmoji');
 
 // Font stacks used throughout. AppEmoji is appended so glyphs like 👑 ✔️ render.
 const SANS = 'AppSans, "Segoe UI", sans-serif, AppEmoji';
