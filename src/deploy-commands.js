@@ -16,6 +16,19 @@ const commands = [
     .addUserOption((o) =>
       o.setName('user').setDescription('Player (defaults to you)').setRequired(false)),
 
+  new SlashCommandBuilder().setName('versus')
+    .setDescription('Head-to-head record between two players')
+    .addUserOption((o) => o.setName('player1').setDescription('First player').setRequired(true))
+    .addUserOption((o) => o.setName('player2').setDescription('Second player (defaults to you)').setRequired(false)),
+  new SlashCommandBuilder().setName('word')
+    .setDescription('Look up a past word of the day and how everyone scored')
+    .addStringOption((o) => o.setName('word').setDescription('The word (or a puzzle number)').setRequired(true)),
+  new SlashCommandBuilder().setName('roast')
+    .setDescription('A statistically accurate burn')
+    .addUserOption((o) => o.setName('user').setDescription('Victim (defaults to you)').setRequired(false)),
+  new SlashCommandBuilder().setName('fortune')
+    .setDescription('Your Wordle fortune for today'),
+
   new SlashCommandBuilder().setName('champion')
     .setDescription('Reigning champion: set the weekly table theme')
     .addSubcommand((s) => s.setName('colors')

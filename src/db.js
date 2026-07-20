@@ -123,8 +123,74 @@ async function currentChampionId() {
   return ids[0] || null; // if co-champions, the first listed holds theme rights
 }
 
+/** Season titles (seasons won per player). Null if never written. */
+async function getSeasonTitles() {
+  const doc = await db.collection('meta').doc('seasonTitles').get();
+  return doc.exists ? doc.data().titles || {} : null;
+}
+
+async function setSeasonTitles(titles) {
+  await db.collection('meta').doc('seasonTitles').set({ titles });
+}
+
+/** After a season rollover, zero the legacy current-season tally. */
+async function clearLegacyCurrentSeason() {
+  await db.collection('meta').doc('legacyWins').set({ currentSeason: {} }, { merge: true });
+}
+
+/** Record a season result (idempotent by year). Returns false if already recorded. */
+async function recordSeasonResult(year, winnerIds, counts) {
+  const ref = db.collection('seasons').doc(String(year));
+  if ((await ref.get()).exists) return false;
+  await ref.set({ year, winnerIds, counts, announcedAt: admin.firestore.FieldValue.serverTimestamp() });
+  return true;
+}
+
+/** Look up a word of the day. Accepts a word string or a puzzle number. */
+async function findWord(query) {
+  if (/^\d+$/.test(query)) {
+    const doc = await db.collection('words').doc(query).get();
+    return doc.exists ? doc.data() : null;
+  }
+  const snap = await db.collection('words')
+    .where('word', '==', query.toUpperCase()).limit(1).get();
+  return snap.empty ? null : snap.docs[0].data();
+}
+
+/** All scores for one puzzle number. */
+async function scoresForPuzzle(puzzle) {
+  const snap = await db.collection('scores').where('puzzle', '==', puzzle).get();
+  return snap.docs.map((d) => d.data());
+}
+
+/** Cheap count of a player's games (Firestore count aggregation — no doc reads). */
+async function countGames(userId) {
+  const agg = await db.collection('scores').where('userId', '==', userId).count().get();
+  return agg.data().count;
+}
+
+/** Count of a player's aces (score of 1). */
+async function countAces(userId) {
+  const agg = await db.collection('scores')
+    .where('userId', '==', userId).where('score', '==', 1).count().get();
+  return agg.data().count;
+}
+
+/** Store a word of the day (idempotent by puzzle number). */
+async function saveWord(puzzle, word, date) {
+  await db.collection('words').doc(String(puzzle)).set({ puzzle, word, date });
+}
+
+/** Highest puzzle number that has a stored word (or null if none). */
+async function latestWordPuzzle() {
+  const snap = await db.collection('words').orderBy('puzzle', 'desc').limit(1).get();
+  return snap.empty ? null : snap.docs[0].data().puzzle;
+}
+
 module.exports = {
   saveScore, scoresForWeek, scoresForMonth, allScores,
   scoresForPlayer, recordWeekResult, weekAlreadyAnnounced, weeklyWinCounts,
   weeklyWinCountsSince, getTheme, setTheme, currentChampionId,
+  getSeasonTitles, setSeasonTitles, clearLegacyCurrentSeason, recordSeasonResult,
+  findWord, scoresForPuzzle, countGames, countAces, saveWord, latestWordPuzzle,
 };
