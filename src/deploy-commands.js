@@ -2,7 +2,7 @@
  *    npm run deploy
  */
 require('dotenv').config();
-const { REST, Routes, SlashCommandBuilder } = require('discord.js');
+const { REST, Routes, SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 
 const commands = [
   new SlashCommandBuilder().setName('week')
@@ -45,6 +45,22 @@ const commands = [
     .setDescription('List the champion emoji names you can choose'),
   new SlashCommandBuilder().setName('help')
     .setDescription('Explain every command this bot understands'),
+
+  new SlashCommandBuilder().setName('link')
+    .setDescription('Map a Discord member to a player (admin only)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addSubcommand((s) => s.setName('set')
+      .setDescription('Link a member to a player label')
+      .addUserOption((o) => o.setName('member').setDescription('The Discord member').setRequired(true))
+      .addStringOption((o) => o.setName('label').setDescription('Initials/label, e.g. PT').setRequired(true))
+      .addStringOption((o) => o.setName('canonical')
+        .setDescription('Canonical id to merge into, e.g. legacy_PT (default: new id from label)')
+        .setRequired(false)))
+    .addSubcommand((s) => s.setName('list')
+      .setDescription('Show all current live links'))
+    .addSubcommand((s) => s.setName('remove')
+      .setDescription('Remove a member\'s link')
+      .addUserOption((o) => o.setName('member').setDescription('The Discord member').setRequired(true))),
 ].map((c) => c.toJSON());
 
 const rest = new REST().setToken(process.env.DISCORD_TOKEN);

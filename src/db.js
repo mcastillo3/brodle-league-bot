@@ -187,10 +187,66 @@ async function latestWordPuzzle() {
   return snap.empty ? null : snap.docs[0].data().puzzle;
 }
 
+/** Live identity links set via /link: { discordId: {canonicalId, label} }. */
+async function getLinks() {
+  const doc = await db.collection('meta').doc('identityLinks').get();
+  return doc.exists ? (doc.data().links || {}) : {};
+}
+
+/** Add or update one Discord id -> {canonicalId, label} mapping. */
+async function setLink(discordId, canonicalId, label) {
+  await db.collection('meta').doc('identityLinks')
+    .set({ links: { [discordId]: { canonicalId, label } } }, { merge: true });
+}
+
+/** Remove a link (returns to seed/derived behavior for that id). */
+async function removeLink(discordId) {
+  const admin2 = require('firebase-admin');
+  await db.collection('meta').doc('identityLinks')
+    .set({ links: { [discordId]: admin2.firestore.FieldValue.delete() } }, { merge: true });
+}
+
+/** Move all scores under `fromId` to `toId`, keeping the lower score on clashes.
+ *  Returns {moved, kept}. Used by /link set to absorb pre-link stray scores. */
+async function rekeyScores(fromId, toId) {
+  if (fromId === toId) return { moved: 0, kept: 0 };
+  const [fromSnap, toSnap] = await Promise.all([
+    db.collection('scores').where('userId', '==', fromId).get(),
+    db.collection('scores').where('userId', '==', toId).get(),
+  ]);
+  const toByPuzzle = {};
+  toSnap.forEach((d) => { toByPuzzle[d.data().puzzle] = d.data(); });
+
+  const ops = [];
+  let moved = 0, kept = 0;
+  for (const doc of fromSnap.docs) {
+    const s = doc.data();
+    const existing = toByPuzzle[s.puzzle];
+    const targetRef = db.collection('scores').doc(`${s.puzzle}_${toId}`);
+    if (!existing || s.score < existing.score) {
+      ops.push({ type: 'set', ref: targetRef, data: { ...s, userId: toId } });
+      moved++;
+    } else {
+      kept++;
+    }
+    ops.push({ type: 'delete', ref: doc.ref });
+  }
+  for (let i = 0; i < ops.length; i += 450) {
+    const batch = db.batch();
+    for (const op of ops.slice(i, i + 450)) {
+      if (op.type === 'set') batch.set(op.ref, op.data);
+      else batch.delete(op.ref);
+    }
+    await batch.commit();
+  }
+  return { moved, kept };
+}
+
 module.exports = {
   saveScore, scoresForWeek, scoresForMonth, allScores,
   scoresForPlayer, recordWeekResult, weekAlreadyAnnounced, weeklyWinCounts,
   weeklyWinCountsSince, getTheme, setTheme, currentChampionId,
   getSeasonTitles, setSeasonTitles, clearLegacyCurrentSeason, recordSeasonResult,
   findWord, scoresForPuzzle, countGames, countAces, saveWord, latestWordPuzzle,
+  getLinks, setLink, removeLink, rekeyScores,
 };
