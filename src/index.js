@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, Events, AttachmentBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, Events, AttachmentBuilder, PermissionFlagsBits } = require('discord.js');
 const cron = require('node-cron');
 
 const {
@@ -39,22 +39,44 @@ const TZ = process.env.TIMEZONE || 'America/Chicago';
 // Identity map: real Discord user id -> canonical player id (their legacy_XX).
 // When a mapped player posts a live score, it saves under their legacy id so it
 // merges with their spreadsheet history instead of creating a separate column.
-// Add each friend here as they post their first score.
-const IDENTITY = {
+// SEED maps — the starting point. Live links set via /link are loaded from
+// Firestore at startup into LINKS and take precedence, so you never have to
+// edit code + redeploy to add a player again.
+const IDENTITY_SEED = {
   '462970375589068800': 'legacy_MC',   // MC
   '444869278160650280': 'legacy_DL',   // DL
   '1514100951508844655': 'legacy_BG',  // BG
 };
-
-/** Resolve any userId to its canonical id (legacy id if this Discord id is mapped). */
-const canonicalId = (userId) => IDENTITY[userId] || userId;
-
-// Player labels shown in the table images. Keyed by canonical id.
-const LABELS = {
+const LABELS_SEED = {
   legacy_BG: 'BG', legacy_MC: 'MC', legacy_DH: 'DH', legacy_DL: 'DL',
   legacy_CA: 'CA', legacy_PT: 'PT', legacy_JG: 'JG', legacy_TB: 'TB',
   legacy_BM: 'BM', legacy_NP: 'NP',
 };
+
+// Populated from Firestore (meta/identityLinks) on startup and after each /link.
+// LINKS[discordId] = { canonicalId, label }
+let LINKS = {};
+
+async function reloadLinks() {
+  try {
+    LINKS = await db.getLinks();
+    console.log(`Loaded ${Object.keys(LINKS).length} identity link(s) from Firestore.`);
+  } catch (err) {
+    console.error('Failed to load identity links:', err.message);
+    LINKS = {};
+  }
+}
+
+/** Resolve any Discord/userId to its canonical id. Live links win over the seed. */
+const canonicalId = (userId) =>
+  LINKS[userId]?.canonicalId || IDENTITY_SEED[userId] || userId;
+
+/** Label for a canonical id: a live link's label, else the seed, else null. */
+function seededLabel(canonId) {
+  if (LABELS_SEED[canonId]) return LABELS_SEED[canonId];
+  const hit = Object.values(LINKS).find((l) => l.canonicalId === canonId);
+  return hit ? hit.label : null;
+}
 
 const client = new Client({
   intents: [
@@ -89,7 +111,7 @@ client.on(Events.MessageCreate, async (message) => {
     // ---- Milestone watch (only on brand-new scores) ----
     if (result === 'new') {
       const cid = canonicalId(message.author.id);
-      const label = LABELS[cid] || (message.member?.displayName || message.author.username);
+      const label = seededLabel(cid) || (message.member?.displayName || message.author.username);
 
       // Career game milestones: 100, 250, 500, 750, then every 250
       const games = await db.countGames(cid);
@@ -123,7 +145,7 @@ function makeInitialsFor(interaction, scores) {
   const cache = {};
   return (userId) => {
     if (cache[userId]) return cache[userId];
-    if (LABELS[userId]) return (cache[userId] = LABELS[userId]);
+    { const sl = seededLabel(userId); if (sl) return (cache[userId] = sl); }
     // fallback for anyone not in LABELS: initials from their name
     const doc = scores.find((s) => s.userId === userId);
     const name = interaction.guild?.members.cache.get(userId)?.displayName
@@ -144,7 +166,7 @@ function makeLabelFor(scores, guild) {
   const cache = {};
   return (userId) => {
     if (cache[userId]) return cache[userId];
-    if (LABELS[userId]) return (cache[userId] = LABELS[userId]);
+    { const sl = seededLabel(userId); if (sl) return (cache[userId] = sl); }
     const doc = scores.find((s) => s.userId === userId);
     const name = guild?.members.cache.get(userId)?.displayName
       || doc?.username || '??';
@@ -168,7 +190,10 @@ async function buildWeekImage(guild) {
 
   // Roster = every player with a mapped Discord ID (columns appear as you add
   // IDs to IDENTITY), plus anyone who scored this week but isn't mapped yet.
-  const roster = [...new Set(Object.values(IDENTITY))];
+  const roster = [...new Set([
+    ...Object.values(IDENTITY_SEED),
+    ...Object.values(LINKS).map((l) => l.canonicalId),
+  ])];
   for (const s of scores) if (!roster.includes(s.userId)) roster.push(s.userId);
   const order = roster;
   if (!scores.length) return null; // nothing to show until someone scores
@@ -189,6 +214,15 @@ async function buildWeekImage(guild) {
   const puzzles = puzzlesInWeek(nowPuzzle).filter((p) => p <= nowPuzzle);
   const players = order.map((id) => ({ id, label: labelFor(id) }));
   const fmtAvg = (id) => played[id] ? (totals[id] / played[id]).toFixed(1) : '·';
+
+  // Words of the day for this week — only up to YESTERDAY (never today's, per
+  // rule #3: NO SPOILING). Missing words just leave that row's right cell blank.
+  const words = {};
+  for (const pz of puzzles) {
+    if (pz >= nowPuzzle) continue; // today's answer stays secret
+    const w = await db.findWord(String(pz));
+    if (w) words[pz] = w.word;
+  }
 
   // leader(s): lowest total among players who have actually played this week
   const scorers = order.filter((id) => played[id]);
@@ -214,6 +248,7 @@ async function buildWeekImage(guild) {
     players,
     puzzles,
     cell: (pz, pid) => byCell[`${pz}_${pid}`] || null,
+    words,
     footerRows: [
       { label: 'pts', strong: true, values: Object.fromEntries(order.map((id) => [id, totals[id] ?? 0])) },
       { label: 'avg', values: Object.fromEntries(order.map((id) => [id, fmtAvg(id)])) },
@@ -474,11 +509,67 @@ client.on(Events.InteractionCreate, async (interaction) => {
         '`/emojis` — list champion emoji names',
         '`/champion colors <c1> <c2>` — *(champion only)* set the two alternating week colors',
         '`/champion icon <emoji>` — *(champion only)* set the emoji over your initials',
+        '`/link set <member> <label>` — *(admin)* map a member to a player',
         '`/help` — this message',
         '',
         'Each Monday at 4 AM I crown the previous week\'s winner (lowest total). The champion gets to theme the `/week` table until someone dethrones them. 👑',
       ].join('\n');
       await interaction.editReply(help);
+
+    } else if (interaction.commandName === 'link') {
+      // Admin gate: Manage Server. (Discord also hides it via default perms,
+      // but we re-check in case the command is invoked another way.)
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+        await interaction.editReply('🔒 Only server admins can manage player links.');
+        return;
+      }
+      const sub = interaction.options.getSubcommand();
+
+      if (sub === 'set') {
+        const member = interaction.options.getUser('member');
+        const label = interaction.options.getString('label').trim();
+        // canonical id: explicit, else derive legacy_<LABEL> so history can merge
+        const canonical = (interaction.options.getString('canonical')
+          || `legacy_${label.toUpperCase()}`).trim();
+        await db.setLink(member.id, canonical, label);
+        await reloadLinks();
+
+        // Absorb any scores the member already posted under their raw Discord id
+        // (before being linked) into the canonical id.
+        let rekeyNote = '';
+        try {
+          const { moved, kept } = await db.rekeyScores(member.id, canonical);
+          if (moved || kept) {
+            rekeyNote = `\nMoved **${moved}** existing score(s) into \`${canonical}\``
+              + (kept ? ` (kept ${kept} where a better score already existed).` : '.');
+          }
+        } catch (err) {
+          console.error('rekey during /link failed:', err);
+          rekeyNote = '\n⚠️ Linked, but re-keying old scores failed — check logs.';
+        }
+
+        await interaction.editReply(
+          `✅ Linked <@${member.id}> → **${label}** (canonical \`${canonical}\`).`
+          + `\nTheir posts now save under \`${canonical}\`.${rekeyNote}`);
+
+      } else if (sub === 'list') {
+        const links = await db.getLinks();
+        const entries = Object.entries(links);
+        if (!entries.length) {
+          await interaction.editReply('No live links yet. The seed map still applies to known players.');
+          return;
+        }
+        const body = entries
+          .map(([id, v]) => `• <@${id}> → **${v.label}** (\`${v.canonicalId}\`)`)
+          .join('\n');
+        await interaction.editReply(`🔗 **Live player links**\n${body}`);
+
+      } else if (sub === 'remove') {
+        const member = interaction.options.getUser('member');
+        await db.removeLink(member.id);
+        await reloadLinks();
+        await interaction.editReply(`🗑️ Removed link for <@${member.id}>.`);
+      }
     }
   } catch (err) {
     console.error(err);
@@ -625,6 +716,7 @@ async function announceSeasonChampion() {
 
 client.once(Events.ClientReady, (c) => {
   console.log(`Logged in as ${c.user.tag}`);
+  reloadLinks(); // load live player links from Firestore
   // Monday 4:00 AM in the league timezone. The Mon-Sun week ended at midnight;
   // the 4-hour buffer lets night owls post Sunday's puzzle late.
   cron.schedule('0 4 * * 1', () => {

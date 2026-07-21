@@ -55,6 +55,7 @@ const SCORE_COLORS = {
  * @param opts.players    [{ id, label }] in column order
  * @param opts.puzzles    [1850, 1851, ...] visible puzzle numbers (rows)
  * @param opts.cell       (puzzleNumber, playerId) => { score, failed } | null
+ * @param opts.words      optional {puzzleNumber: 'CRANE'} — shown at row's right
  * @param opts.footerRows [{ label, values: {playerId: string}, strong? }]
  * @param opts.leader     optional highlighted callout string
  * @param opts.theme      { colorAHex, colorBHex, emojiChar, championId }
@@ -64,19 +65,21 @@ const SCORE_COLORS = {
 function renderWeekTable(opts) {
   const {
     title, subtitle, players, puzzles, cell, footerRows = [], leader,
-    theme = {}, rules = [],
+    theme = {}, rules = [], words = {},
   } = opts;
 
   const colorA = theme.colorAHex || '#C0DD97';
   const colorB = theme.colorBHex || '#F1EFE8';
   const champEmoji = theme.emojiChar || null;
   const champId = theme.championId || null;
+  const hasWords = Object.keys(words).length > 0;
+  const wordColW = hasWords ? 66 : 0;
 
   // layout
   const rowH = 30, headerH = 40, pad = 20;
   const labelW = 66;
   const colW = Math.max(52, Math.min(84, Math.floor((360 - labelW) / players.length)));
-  const width = Math.max(380, labelW + pad * 2 + colW * players.length);
+  const width = Math.max(380, labelW + pad * 2 + colW * players.length + wordColW);
   const titleBlock = 84;              // taller header for the two long text lines
   const gridTop = titleBlock + headerH;
   const bodyRows = puzzles.length;
@@ -123,6 +126,12 @@ function renderWeekTable(opts) {
   ctx.fillStyle = '#2C2C2A';
   ctx.textAlign = 'center';
   players.forEach((p, i) => ctx.fillText(p.label, colX(i), titleBlock + 24));
+  if (hasWords) {
+    ctx.font = `600 12px ${SANS_BOLD}`;
+    ctx.fillStyle = '#787c7e';
+    ctx.textAlign = 'left';
+    ctx.fillText('word', pad + labelW + colW * players.length + 8, titleBlock + 24);
+  }
 
   // body rows — alternate between the two theme colors (Option 1)
   puzzles.forEach((pz, r) => {
@@ -147,6 +156,14 @@ function renderWeekTable(opts) {
       ctx.textAlign = 'center';
       ctx.fillText(!c ? '·' : (c.failed ? 'X' : String(c.score)), colX(i), y + 20);
     });
+
+    // word of the day at the far right (blank for today/unknown)
+    if (hasWords && words[pz]) {
+      ctx.fillStyle = '#787c7e';
+      ctx.font = monoR;
+      ctx.textAlign = 'left';
+      ctx.fillText(words[pz], pad + labelW + colW * players.length + 8, y + 20);
+    }
   });
 
   // divider

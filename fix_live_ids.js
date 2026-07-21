@@ -16,9 +16,11 @@ const admin = require('firebase-admin');
 
 // Must match the IDENTITY map in src/index.js.
 const IDENTITY = {
-  '462970375589068800': 'legacy_MC',
-  '444869278160650280': 'legacy_DL',
-  '1514100951508844655': 'legacy_BG',
+  '462970375589068800': 'legacy_MC', // Manny
+  '444869278160650280': 'legacy_DL', // Daniel L
+  '1514100951508844655': 'legacy_BG', // Ben
+  "970710353132548096": "legacy_PT", // Pete
+  "1334729598302421124": "legacy_DH", // Daniel H
 };
 
 const COMMIT = process.argv.includes('--commit');
