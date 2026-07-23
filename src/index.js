@@ -54,6 +54,28 @@ const LABELS_SEED = {
   legacy_BM: 'BM', legacy_NP: 'NP',
 };
 
+// Full display names for prose contexts (roast, fortune) where initials read
+// awkwardly. Keyed by canonical id. Falls back to the initials label if a
+// player isn't listed here, so it's safe to fill in gradually.
+const NAMES = {
+  legacy_BG: 'Ben',
+  legacy_MC: 'Manny',
+  legacy_DH: 'Daniel H',
+  legacy_DL: 'Daniel L',
+  legacy_CA: 'Chris A',
+  legacy_PT: 'Pete',
+  legacy_JG: 'Jeff',
+  legacy_TB: 'TBoy',
+  legacy_BM: 'Brian',
+  legacy_NP: 'Neil',
+  //add real names here
+};
+
+/** Display name for prose: NAMES first, then the initials label, then '??'. */
+function displayName(canonId) {
+  return NAMES[canonId] || seededLabel(canonId) || '??';
+}
+
 // Populated from Firestore (meta/identityLinks) on startup and after each /link.
 // LINKS[discordId] = { canonicalId, label }
 let LINKS = {};
@@ -471,8 +493,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const user = interaction.options.getUser('user') || interaction.user;
       const cid = canonicalId(user.id);
       const scores = await db.scoresForPlayer(cid);
-      const labelFor = makeLabelFor(scores, interaction.guild);
-      const name = labelFor(cid);
+      const name = displayName(cid);
       if (scores.length < 20) {
         await interaction.editReply(`${name} hasn't played enough to roast. Come back when there's a body of work. 📉`);
         return;
@@ -487,7 +508,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
     } else if (interaction.commandName === 'fortune') {
       const cid = canonicalId(interaction.user.id);
       const scores = await db.scoresForPlayer(cid);
-      const labelFor = makeLabelFor(scores, interaction.guild);
       const today = new Date(new Date().toLocaleString('en-US', { timeZone: TZ }));
       const dateStr = today.toISOString().slice(0, 10);
       if (scores.length < 10) {
@@ -495,8 +515,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return;
       }
       const stats = fun.playerStats(scores);
-      const aiFortune = await ai.fortune(labelFor(cid), stats, fun.DAY_NAMES[today.getDay()]);
-      const lines = fun.fortuneLines(labelFor(cid), stats, today.getDay());
+      const name = displayName(cid);
+      const aiFortune = await ai.fortune(name, stats, fun.DAY_NAMES[today.getDay()]);
+      const lines = fun.fortuneLines(name, stats, today.getDay());
       const pick = aiFortune || fun.dailyPick(lines, cid, dateStr);
       await interaction.editReply(pick);
 
