@@ -14,6 +14,7 @@ const {
 const { renderWeekTable, renderStatsTable } = require('./imageTable');
 const themeLib = require('./theme');
 const fun = require('./fun');
+const ai = require('./ai');
 
 // League rules shown in the /week footer. Edit these lines freely.
 const RULES = [
@@ -183,9 +184,10 @@ function makeLabelFor(scores, guild) {
  * Build the /week image. Shared by the slash command and the 8 PM daily post.
  * @returns {png, weekId} or null if no scores yet this week.
  */
-async function buildWeekImage(guild) {
+async function buildWeekImage(guild, opts = {}) {
+  const refPuzzle = opts.refPuzzle ?? currentPuzzleNumber(TZ);
   const nowPuzzle = currentPuzzleNumber(TZ);
-  const weekId = weekIdForPuzzle(nowPuzzle);
+  const weekId = weekIdForPuzzle(refPuzzle);
   const scores = await db.scoresForWeek(weekId);
 
   // Roster = every player with a mapped Discord ID (columns appear as you add
@@ -201,22 +203,43 @@ async function buildWeekImage(guild) {
   const labelFor = makeLabelFor(scores, guild);
 
   const byCell = {};
-  const totals = {}, played = {};
-  for (const s of scores) {
-    byCell[`${s.puzzle}_${s.userId}`] = s;
-    totals[s.userId] = (totals[s.userId] || 0) + s.score;
-    played[s.userId] = (played[s.userId] || 0) + 1;
-  }
+  for (const s of scores) byCell[`${s.puzzle}_${s.userId}`] = s;
+
   const year = String(new Date().getFullYear());
   const seasonCounts = await db.weeklyWinCountsSince(`${year}-01-01`);
   const seasonTitles = (await db.getSeasonTitles()) ?? SEASON_TITLES_SEED;
 
-  const puzzles = puzzlesInWeek(nowPuzzle).filter((p) => p <= nowPuzzle);
+  // For the current week, only show puzzles through today; for a finished week
+  // (the Monday announcement), show all 7 days.
+  const allWeekPuzzles = puzzlesInWeek(refPuzzle);
+  const puzzles = opts.finished
+    ? allWeekPuzzles
+    : allWeekPuzzles.filter((p) => p <= nowPuzzle);
+
+  // Totals follow the league rule: a day you skipped still costs you
+  // MISSED_SCORE (default 7) and counts as a day played. Today is excluded
+  // until it's over — nobody is penalized for a day still in progress.
+  const MISSED = parseInt(process.env.MISSED_SCORE || '7', 10);
+  const totals = {}, played = {};
+  for (const id of order) {
+    let total = 0, days = 0;
+    for (const pz of puzzles) {
+      const s = byCell[`${pz}_${id}`];
+      if (s) {                       // played it
+        total += s.score; days++;
+      } else if (pz < nowPuzzle && MISSED > 0) {
+        total += MISSED; days++;     // completed day they skipped
+      }
+      // else: today, not played yet — no penalty until the day is over
+    }
+    totals[id] = total;
+    played[id] = days;
+  }
+
   const players = order.map((id) => ({ id, label: labelFor(id) }));
   const fmtAvg = (id) => played[id] ? (totals[id] / played[id]).toFixed(1) : '·';
 
-  // Words of the day for this week — only up to YESTERDAY (never today's, per
-  // rule #3: NO SPOILING). Missing words just leave that row's right cell blank.
+  // Words of the day — reveal only puzzles strictly before today (NO SPOILING).
   const words = {};
   for (const pz of puzzles) {
     if (pz >= nowPuzzle) continue; // today's answer stays secret
@@ -224,13 +247,34 @@ async function buildWeekImage(guild) {
     if (w) words[pz] = w.word;
   }
 
-  // leader(s): lowest total among players who have actually played this week
-  const scorers = order.filter((id) => played[id]);
-  const best = Math.min(...scorers.map((id) => totals[id]));
-  const leaders = scorers.filter((id) => totals[id] === best);
-  const leader = leaders.length === 1
-    ? `👑 ${labelFor(leaders[0])} leads — ${best} pts, ${fmtAvg(leaders[0])} avg`
-    : `⚔️ Tied at the top — ${leaders.map(labelFor).join(', ')} with ${best} pts each`;
+  // leader(s) for the callout.
+  let leader, finishedChamps = null;
+  if (opts.finished) {
+    // Finished week: winner by the league rule (missed days penalized), matching
+    // computeStandings so the crown and the recorded result agree.
+    const standings = computeStandings(scores, 7);
+    finishedChamps = winners(standings).map((s) => s.userId);
+    const champTotal = standings.length ? standings[0].total : null;
+    leader = finishedChamps.length === 1
+      ? `👑 ${labelFor(finishedChamps[0])} wins the week — ${champTotal} pts`
+      : `👑 Co-champions — ${finishedChamps.map(labelFor).join(' & ')} at ${champTotal} pts each`;
+  } else {
+    // Mid-week: only players who have played TODAY are eligible for the lead.
+    // Someone who hasn't posted yet has an artificially low total, so including
+    // them would fake a lead. If nobody has played today, fall back to the most
+    // recent day anyone did play (yesterday, then further back if needed).
+    let cutoff = null;
+    for (let pz = puzzles[puzzles.length - 1]; pz >= puzzles[0]; pz--) {
+      if (order.some((id) => byCell[`${pz}_${id}`])) { cutoff = pz; break; }
+    }
+    const contenders = order.filter((id) => byCell[`${cutoff}_${id}`]);
+    const best = Math.min(...contenders.map((id) => totals[id]));
+    const leaders = contenders.filter((id) => totals[id] === best);
+    const stale = cutoff !== nowPuzzle ? ' (thru yesterday)' : '';
+    leader = leaders.length === 1
+      ? `👑 ${labelFor(leaders[0])} leads — ${best} pts, ${fmtAvg(leaders[0])} avg${stale}`
+      : `⚔️ Tied at the top — ${leaders.map(labelFor).join(', ')} with ${best} pts each${stale}`;
+  }
 
   // champion theme (falls back to defaults if none set)
   const saved = await db.getTheme();
@@ -243,11 +287,18 @@ async function buildWeekImage(guild) {
   };
 
   const png = renderWeekTable({
-    title: WEEK_TITLE,
-    subtitle: WEEK_SUBTITLE,
+    title: opts.title || WEEK_TITLE,
+    subtitle: opts.subtitle || WEEK_SUBTITLE,
     players,
     puzzles,
-    cell: (pz, pid) => byCell[`${pz}_${pid}`] || null,
+    cell: (pz, pid) => {
+      const s = byCell[`${pz}_${pid}`];
+      if (s) return s;
+      // A completed day with no score is a miss: costs MISSED_SCORE and shows
+      // as an X, same as failing to solve. Today stays blank until it's over.
+      if (pz < nowPuzzle && MISSED > 0) return { score: MISSED, failed: true, missed: true };
+      return null;
+    },
     words,
     footerRows: [
       { label: 'pts', strong: true, values: Object.fromEntries(order.map((id) => [id, totals[id] ?? 0])) },
@@ -259,7 +310,7 @@ async function buildWeekImage(guild) {
     theme,
     rules: RULES,
   });
-  return { png, weekId };
+  return { png, weekId, champs: finishedChamps || [], labelFor, seasonCounts };
 }
 
 client.on(Events.InteractionCreate, async (interaction) => {
@@ -319,7 +370,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
       const png = renderStatsTable({
         title: 'All-time',
-        subtitle: 'ranked by average',
+        subtitle: 'ranked by avg · X = unsolved (pre-bot totals include skips)',
         columns: [
           { key: 'G', header: 'G' },
           { key: 'pts', header: 'pts' },
@@ -422,8 +473,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return;
       }
       const stats = fun.playerStats(scores);
+      // Try AI for variety; fall back to the canned lines if it's unavailable.
+      const aiLine = await ai.roast(name, stats);
       const lines = fun.roastLines(name, stats);
-      const pick = lines[Math.floor(Math.random() * lines.length)];
+      const pick = aiLine || lines[Math.floor(Math.random() * lines.length)];
       await interaction.editReply(`🔥 ${pick}`);
 
     } else if (interaction.commandName === 'fortune') {
@@ -437,8 +490,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return;
       }
       const stats = fun.playerStats(scores);
+      const aiFortune = await ai.fortune(labelFor(cid), stats, fun.DAY_NAMES[today.getDay()]);
       const lines = fun.fortuneLines(labelFor(cid), stats, today.getDay());
-      const pick = fun.dailyPick(lines, cid, dateStr);
+      const pick = aiFortune || fun.dailyPick(lines, cid, dateStr);
       await interaction.editReply(pick);
 
     } else if (interaction.commandName === 'colors') {
@@ -594,30 +648,39 @@ async function announceLastWeek() {
     return;
   }
 
-  const scores = await db.scoresForWeek(weekId);
-  const standings = computeStandings(scores, 7);
-  const champs = winners(standings);
-
   const channel = await client.channels.fetch(process.env.ANNOUNCE_CHANNEL_ID);
-  if (!standings.length) {
+
+  // Build the final-standings image in the same style as /week (all 7 days,
+  // updated season points). champs come back as canonical ids.
+  const built = await buildWeekImage(channel.guild, {
+    refPuzzle: lastWeekPuzzle,
+    finished: true,
+    title: `🏁 Final Standings — week of ${weekId}`,
+  });
+
+  if (!built) {
     await channel.send(`No Wordle scores recorded for the week of ${weekId}. Sad week. 😔`);
     return;
   }
 
+  const { champs, labelFor } = built;
   const crownLine = champs.length === 1
-    ? `👑 **${champs[0].username}** is the Wordle champion for the week of ${weekId}!`
-    : `👑 Co-champions for the week of ${weekId}: ${champs.map((c) => `**${c.username}**`).join(' & ')}!`;
+    ? `👑 **${labelFor(champs[0])}** is the Wordle champion for the week of ${weekId}! New week starts today — good luck! 🟩`
+    : `👑 Co-champions for the week of ${weekId}: ${champs.map(labelFor).join(' & ')}! New week starts today — good luck! 🟩`;
 
   await channel.send({
     content: crownLine,
-    embeds: [standingsEmbed(`🏁 Final standings — week of ${weekId}`, standings,
-      { footer: 'New week starts today. Good luck! 🟩' })],
+    files: [new AttachmentBuilder(built.png, { name: `final-${weekId}.png` })],
   });
 
+  // Record the result (winners stored as canonical ids) so season/all-time
+  // tallies and the champion-theme permission update.
+  const scores = await db.scoresForWeek(weekId);
+  const standings = computeStandings(scores, 7);
   await db.recordWeekResult(
     weekId,
-    standings.map(({ dist, ...s }) => s), // dist keys are numbers; keep doc clean
-    champs.map((c) => c.userId),
+    standings.map(({ dist, ...s }) => s),
+    champs, // canonical ids
   );
   console.log(`Announced week ${weekId}.`);
 }
