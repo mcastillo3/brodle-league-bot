@@ -62,13 +62,10 @@ const NAMES = {
   legacy_MC: 'Manny',
   legacy_DH: 'Daniel H',
   legacy_DL: 'Daniel L',
-  legacy_CA: 'Chris A',
+  legacy_CA: 'Chris',
   legacy_PT: 'Pete',
   legacy_JG: 'Jeff',
-  legacy_TB: 'TBoy',
-  legacy_BM: 'Brian',
-  legacy_NP: 'Neil',
-  //add real names here
+  // legacy_TB, legacy_BM, legacy_NP: add real names here if desired
 };
 
 /** Display name for prose: NAMES first, then the initials label, then '??'. */
@@ -494,14 +491,54 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const cid = canonicalId(user.id);
       const scores = await db.scoresForPlayer(cid);
       const name = displayName(cid);
-      if (scores.length < 20) {
-        await interaction.editReply(`${name} hasn't played enough to roast. Come back when there's a body of work. 📉`);
+      if (!scores.length) {
+        await interaction.editReply(`${name} has no scores on record. Can't roast a ghost. 👻`);
         return;
       }
       const stats = fun.playerStats(scores);
-      // Try AI for variety; fall back to the canned lines if it's unavailable.
-      const aiLine = await ai.roast(name, stats);
-      const lines = fun.roastLines(name, stats);
+
+      // --- Build layered roast context: today -> this week -> weekday -> lifetime ---
+      const nowPuzzle = currentPuzzleNumber(TZ);
+      const today = new Date(new Date().toLocaleString('en-US', { timeZone: TZ }));
+      const wdIdx = today.getDay();
+      const wdName = fun.DAY_NAMES[wdIdx];
+      const ctx = [`player: ${name}`];
+
+      // 1. Today's score, if submitted
+      const todayScore = scores.find((s) => s.puzzle === nowPuzzle);
+      if (todayScore) {
+        ctx.push(`TODAY'S SCORE: ${todayScore.failed ? 'FAILED (X/6)' : todayScore.score + '/6'} on ${wdName}'s puzzle`);
+      } else {
+        ctx.push(`TODAY'S SCORE: not submitted yet (hasn't played today)`);
+      }
+
+      // 2. This week's performance so far
+      const weekId = weekIdForPuzzle(nowPuzzle);
+      const weekScores = scores.filter((s) => s.weekId === weekId);
+      if (weekScores.length) {
+        const wt = weekScores.reduce((a, s) => a + s.score, 0);
+        const wf = weekScores.filter((s) => s.failed).length;
+        const wbest = Math.min(...weekScores.map((s) => s.score));
+        const wworst = Math.max(...weekScores.map((s) => s.score));
+        ctx.push(`THIS WEEK: ${weekScores.length} played, total ${wt}, avg ${(wt / weekScores.length).toFixed(2)}, best ${wbest}, worst ${wworst}${wf ? `, ${wf} fail(s)` : ''}`);
+      } else {
+        ctx.push(`THIS WEEK: no games played yet this week`);
+      }
+
+      // 3. Record on today's weekday (all-time; the sample is inherently all data)
+      const wd = stats.byWeekday[wdIdx];
+      if (wd.n >= 3) {
+        ctx.push(`${wdName} RECORD: ${wd.n} games, ${(wd.sum / wd.n).toFixed(2)} avg`);
+      }
+
+      // 4. Lifetime ammo
+      ctx.push(`LIFETIME: ${stats.games} games, ${stats.avg?.toFixed(2)} avg, ${stats.fails} fails, ${stats.aces} aces, ${stats.sixes} last-gasp 6/6 escapes`);
+      const worstDay = fun.worstWeekday(stats), worstMonth = fun.worstMonth(stats);
+      if (worstDay) ctx.push(`worst weekday ever: ${worstDay.day} (${worstDay.avg.toFixed(2)})`);
+      if (worstMonth) ctx.push(`worst month ever: ${worstMonth.month} (${worstMonth.avg.toFixed(2)})`);
+
+      const aiLine = await ai.roast(name, ctx.join('\n'));
+      const lines = fun.roastLines(name, stats); // canned fallback
       const pick = aiLine || lines[Math.floor(Math.random() * lines.length)];
       await interaction.editReply(`🔥 ${pick}`);
 

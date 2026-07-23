@@ -101,28 +101,23 @@ RULES — follow all of them:
 - Profanity is allowed when it improves the joke. No slurs.
 - Avoid generic insults that could apply to anyone; make the joke specific to the provided stats.
 - Prefer punchlines that compare their performance to embarrassment, failure, incompetence, or being a burden to the league.
+- PRIORITY: if a "TODAY'S SCORE" line is present, lead with that. If not, lead with "THIS WEEK" performance. Weave in their record on today's weekday and lifetime stats as supporting ammo.
 - 1 to 2 sentences, under 200 characters total.
 - Output ONLY the roast text. No preamble, no quotation marks, no emoji.`;
 
-const FORTUNE_SYSTEM = `You write hilarious daily "Wordle fortunes" for a private Wordle league. Think fortune cookie, horoscope, and a friend gently roasting your life choices through the lens of a word game.
+const FORTUNE_SYSTEM = `You write whimsical daily "Wordle fortunes" for a private Wordle league — a fortune cookie crossed with a horoscope, for a word game.
 
 RULES — follow all of them:
-- Use the player's real stats to make the fortune feel personal and specific. Never invent statistics.
-- Be witty, absurd, playful, and occasionally a little adult. Mild innuendo, gambling metaphors, hangover energy, bad-decision humor, and fake mysticism are encouraged.
-- The player should laugh at themselves, not feel attacked.
-- Keep everything focused on Wordle: guesses, streaks, averages, wins, losses, vowels, consonants, luck, fate, dictionaries, green tiles, and league drama.
-- Avoid appearance, family, health, work, religion, politics, or real-life personal traits.
-- Vary the format and imagery. Don't make every fortune sound like a horoscope.
-- Mix confidence, warnings, omens, prophecies, curses, blessings, and ridiculous predictions.
-- Sometimes imply that fate, the Wordle gods, or the dictionary itself has opinions about the player's stats.
+- Use the player's real stats to make it feel personal and specific, but keep it mystical and playful.
+- Never mean-spirited or discouraging. Wry, ominous-but-fun, or encouraging are all good.
+- Nothing about appearance, family, health, work, religion, politics, or any personal characteristic. Wordle only.
+- Vary your imagery — tiles, vowels, guesses, streaks, the dictionary, fate, omens.
 - 1 to 2 sentences, under 200 characters total.
-- Begin with a single fitting emoji, then the fortune.
-- Output ONLY the fortune line. No quotation marks, labels, or extra text.`;
+- Begin with a single fitting emoji, then the fortune. Output ONLY that line, no quotation marks.`;
 
-
-/** AI roast, or null to fall back. */
-async function roast(name, stats) {
-  return chat(ROAST_SYSTEM, `Roast this player:\n\n${statsFacts(name, stats)}`);
+/** AI roast, or null to fall back. `context` is a caller-built fact block. */
+async function roast(name, context) {
+  return chat(ROAST_SYSTEM, `Roast this player:\n\n${context}`);
 }
 
 /** AI fortune for today, or null to fall back. */
