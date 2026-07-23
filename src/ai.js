@@ -102,6 +102,7 @@ RULES — follow all of them:
 - Avoid generic insults that could apply to anyone; make the joke specific to the provided stats.
 - Prefer punchlines that compare their performance to embarrassment, failure, incompetence, or being a burden to the league.
 - PRIORITY: if a "TODAY'S SCORE" line is present, lead with that. If not, lead with "THIS WEEK" performance. Weave in their record on today's weekday and lifetime stats as supporting ammo.
+- The score is 1 being the best and 6 being the worst. So the higher the score, the worse.
 - 1 to 2 sentences, under 200 characters total.
 - Output ONLY the roast text. No preamble, no quotation marks, no emoji.`;
 
