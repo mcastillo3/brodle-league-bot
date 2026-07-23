@@ -87,10 +87,15 @@ const client = new Client({
   ],
 });
 
-// ---------- 1. Capture scores from the Wordle channel ------------------------
+// Channels the bot listens to for score posts. Set WORDLE_CHANNEL_ID to one id,
+// or several comma-separated ids, e.g. "123,456". Whitespace is ignored.
+const WORDLE_CHANNEL_IDS = (process.env.WORDLE_CHANNEL_ID || '')
+  .split(',').map((s) => s.trim()).filter(Boolean);
+
+// ---------- 1. Capture scores from the Wordle channel(s) ---------------------
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot) return;
-  if (message.channelId !== process.env.WORDLE_CHANNEL_ID) return;
+  if (!WORDLE_CHANNEL_IDS.includes(message.channelId)) return;
 
   const parsed = parseWordleShare(message.content);
   if (!parsed) return;
